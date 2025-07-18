@@ -11,9 +11,9 @@ contract Mixer is IncrementalMerkleTree {
 
     mapping(bytes32 =>bool) public s_nullifierHashes;
     
-    event Deposit(bytes32 commitment, uint32 index, uint256 timestamp);
-    event Withdraw(address payable _receiver, bytes32 nullifierHash, uint256 amount);
-    
+    event Deposit(bytes32 indexed commitment, uint32 index, uint256 timestamp);
+    event Withdraw(address payable indexed_receiver, bytes32 nullifierHash, uint256 amount);
+
     error Mixer__TransferFailed();
     error Mixer__InvalidProof();
     error Mixer__InvalidEthDeposition(uint256 ethSent, uint256 denomination);
