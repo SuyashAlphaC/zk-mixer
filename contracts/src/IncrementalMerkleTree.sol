@@ -5,10 +5,13 @@ import {Poseidon2, Field} from "@poseidon2/src/Poseidon2.sol";
 
 contract IncrementalMerkleTree {
     uint32 public immutable i_depth;
-    bytes32 public s_root;
     uint32 public s_nextLeafIndex;
     mapping(uint32 => bytes32) s_cachedSubTrees;
+    mapping(uint256 => bytes32) s_roots;
+    uint32 public s_currentRootIndex;
+    uint32 public constant ROOT_HISTORY_SIZE = 30;
     Poseidon2 public immutable i_hasher;
+
     error IncrementalMerkleTree__DepthShouldBeMoreThanZero();
     error IncrementalMerkleTree__DepthShouldBeLessThan32();
     error IncrementalMerkleTree__MerkleTreeIndexOutOfBounds(uint32 depth);
@@ -23,7 +26,7 @@ contract IncrementalMerkleTree {
         }
 
         i_depth = _depth;
-        s_root = zeroes(_depth);
+        s_roots[0] = zeroes(_depth);
         i_hasher = _hasher;
     }
 
@@ -47,17 +50,37 @@ contract IncrementalMerkleTree {
                 right = currentHash;
             }
 
-            currentHash = Field.toBytes32(i_hasher(Field.toField(left), Field.toField(right)));
+            currentHash = Field.toBytes32(i_hasher.hash_2(Field.toField(left), Field.toField(right)));
 
             currentIndex /= 2;
-            s_nextLeafIndex += 1;
         }
-
+        uint32 newRootIndex = (s_currentRootIndex + 1) % ROOT_HISTORY_SIZE;
+        s_currentRootIndex = newRootIndex;
+        s_roots[newRootIndex] = currentHash;
+        s_nextLeafIndex += 1;
         return _nextLeafIndex;
        
     }
 
-    function zeroes(uint32 i ) public returns(bytes32 ) {
+    function isKnownRoot(bytes32 _root) public view returns(bool) {
+        if(_root == bytes32(0)) {
+            return false;
+        }
+        uint32 _currentRootIndex = s_currentRootIndex;
+        uint32 i = _currentRootIndex;
+        do { 
+            if(_root == s_roots[i]) {
+                return true;
+            }
+            if(i == 0) {
+                i = ROOT_HISTORY_SIZE;
+            }
+            i -- ;
+
+        } while (i != s_currentRootIndex);
+        return false;
+    }
+    function zeroes(uint32 i) public pure returns(bytes32 ) {
      if (i == 0) return bytes32(0x0d823319708ab99ec915efd4f7e03d11ca1790918e8f04cd14100aceca2aa9ff);
         else if (i == 1) return bytes32(0x170a9598425eb05eb8dc06986c6afc717811e874326a79576c02d338bdf14f13);
         else if (i == 2) return bytes32(0x273b1a40397b618dac2fc66ceb71399a3e1a60341e546e053cbfa5995e824caf);
