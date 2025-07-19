@@ -40,11 +40,11 @@ export default async function generateProof(): Promise<String> {
         };
 
         const { witness } = await noir.execute(inputArray);
-        const { proof } = await honk.generateProof(witness, { keccak: true });
+        const { proof, publicInputs } = await honk.generateProof(witness, { keccak: true });
 
         const result = ethers.AbiCoder.defaultAbiCoder().encode(
-            ["bytes"],
-            [proof]
+            ["bytes", "bytes32[]"],
+            [proof, publicInputs]
         );
 
         return result;
