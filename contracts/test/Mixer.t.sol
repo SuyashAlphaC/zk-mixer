@@ -3,6 +3,7 @@
 pragma solidity ^0.8.19;
 import {Test, console} from "forge-std/Test.sol";
 import {HonkVerifier} from "../src/Verifier.sol";
+import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import {IncrementalMerkleTree, Poseidon2} from "../src/IncrementalMerkleTree.sol";
 import {Mixer} from "../src/Mixer.sol";
 

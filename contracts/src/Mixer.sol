@@ -2,8 +2,9 @@
 
 pragma solidity ^0.8.19;
 import {IVerifier} from "./Verifier.sol";
+import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import {IncrementalMerkleTree, Poseidon2} from "./IncrementalMerkleTree.sol";
-contract Mixer is IncrementalMerkleTree {
+contract Mixer is IncrementalMerkleTree, ReentrancyGuard {
     IVerifier public immutable i_verifier;
 
     mapping(bytes32 => bool) public s_commitments;
@@ -25,7 +26,7 @@ contract Mixer is IncrementalMerkleTree {
         i_verifier = _verifier;
     }
 
-    function deposit(bytes32 _commitment) external payable{
+    function deposit(bytes32 _commitment) external payable nonReentrant{
         if(s_commitments[_commitment]) {
             revert Mixer__CommitmentAlreadySaved(_commitment);
         }
@@ -39,7 +40,7 @@ contract Mixer is IncrementalMerkleTree {
         emit Deposit(_commitment,insertedIndex, block.timestamp);
     }
 
-    function withdraw(bytes memory proof , bytes32 _root , bytes32 _nullifierHash, address payable _receiver) external {
+    function withdraw(bytes memory proof , bytes32 _root , bytes32 _nullifierHash, address payable _receiver) external  nonReentrant{
         if(!isKnownRoot(_root)) {
             revert Mixer__UnknownRoot(_root);
         }
