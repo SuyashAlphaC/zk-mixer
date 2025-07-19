@@ -3,7 +3,6 @@
 pragma solidity ^0.8.19;
 import {Test, console} from "forge-std/Test.sol";
 import {HonkVerifier} from "../src/Verifier.sol";
-import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import {IncrementalMerkleTree, Poseidon2} from "../src/IncrementalMerkleTree.sol";
 import {Mixer} from "../src/Mixer.sol";
 
@@ -76,5 +75,24 @@ contract MixerTest is Test {
         mixer.withdraw(_proof, _publicInputs[0], _publicInputs[1], payable(address(uint160(uint256(_publicInputs[2])))));
         assertEq(address(mixer).balance, 0);
         assertEq(receiver.balance, mixer.DENOMINATION());
+    }
+
+    function testAnotherUserWithdrawFails() public { 
+        (bytes32 _commitment, bytes32 _nullifier, bytes32 _secret) = _getCommitment();
+        console.log("Commitment: ");
+        console.logBytes32(_commitment);
+        vm.expectEmit(true, false, false, true);
+        emit Mixer.Deposit(_commitment, 0, block.timestamp);
+        mixer.deposit{value : mixer.DENOMINATION()}(_commitment);  
+        
+        bytes32[] memory leaves = new bytes32[](1);
+        leaves[0] = _commitment;
+
+        (bytes memory _proof, bytes32[] memory _publicInputs) = _getProof(leaves, _nullifier, _secret, receiver);
+
+        address attacker = makeAddr("attacker");
+        vm.prank(attacker);
+        vm.expectRevert();
+        mixer.withdraw(_proof, _publicInputs[0], _publicInputs[1], payable(attacker));
     }
 }
