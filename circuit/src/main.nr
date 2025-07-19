@@ -13,8 +13,8 @@ fn main(
     let commitmentHash = poseidon::poseidon2::Poseidon2::hash([nullifier, secret], 2);
     let computed_nullifier_hash = poseidon::poseidon2::Poseidon2::hash([nullifier], 1);
     let computed_root = merkle_tree::compute_merkle_root(commitmentHash, merkle_proof, is_even);
-    let recipient_binding = recipient * recipient;
-    assert(recipient_binding == recipient * recipient);
+    // let recipient_binding = recipient * recipient;
+    // assert(recipient_binding == recipient * recipient);
     assert(computed_nullifier_hash == nullifier_hash);
     assert(computed_root == root);
 }
