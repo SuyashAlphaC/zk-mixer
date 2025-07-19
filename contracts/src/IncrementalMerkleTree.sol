@@ -3,19 +3,78 @@
 pragma solidity ^0.8.19;
 import {Poseidon2, Field} from "@poseidon2/src/Poseidon2.sol";
 
+/** 
+ * @title IncrementalMerkleTree
+ * @author Suyash Agrawal
+ * @notice A Merkle tree implementation that supports incremental insertion of leaves
+ * @dev This contract implements an incremental Merkle tree using Poseidon2 hash function.
+ *      It maintains a history of roots and uses cached subtrees for efficient insertions.
+ *      The tree is optimized for privacy applications like Tornado Cash.
+ */
 contract IncrementalMerkleTree {
-    uint32 public immutable i_depth;
-    uint32 public s_nextLeafIndex;
-    mapping(uint32 => bytes32) s_cachedSubTrees;
-    mapping(uint256 => bytes32) s_roots;
-    uint32 public s_currentRootIndex;
+    /*//////////////////////////////////////////////////////////////
+                                CONSTANTS
+    //////////////////////////////////////////////////////////////*/
+    
+    /// @notice Maximum number of historical roots to maintain
     uint32 public constant ROOT_HISTORY_SIZE = 30;
+
+    /*//////////////////////////////////////////////////////////////
+                            IMMUTABLE VARIABLES
+    //////////////////////////////////////////////////////////////*/
+    
+    /// @notice The depth of the Merkle tree (determines max capacity: 2^depth leaves)
+    uint32 public immutable i_depth;
+    
+    /// @notice The Poseidon2 hasher instance used for computing hashes
     Poseidon2 public immutable i_hasher;
 
+    /*//////////////////////////////////////////////////////////////
+                            STATE VARIABLES
+    //////////////////////////////////////////////////////////////*/
+    
+    /// @notice The index where the next leaf will be inserted
+    uint32 public s_nextLeafIndex;
+    
+    /// @notice Cached subtree hashes for efficient incremental insertions
+    /// @dev Maps tree level to the rightmost subtree hash at that level
+    mapping(uint32 => bytes32) s_cachedSubTrees;
+    
+    /// @notice Historical roots of the Merkle tree
+    /// @dev Circular buffer storing the last ROOT_HISTORY_SIZE roots
+    mapping(uint256 => bytes32) s_roots;
+    
+    /// @notice Current index in the roots circular buffer
+    uint32 public s_currentRootIndex;
+
+    /*//////////////////////////////////////////////////////////////
+                                ERRORS
+    //////////////////////////////////////////////////////////////*/
+    
+    /// @dev Thrown when tree depth is zero
     error IncrementalMerkleTree__DepthShouldBeMoreThanZero();
+    
+    /// @dev Thrown when tree depth is >= 32 (would cause overflow)
     error IncrementalMerkleTree__DepthShouldBeLessThan32();
+    
+    /// @dev Thrown when requesting zero hash for invalid tree level
+    /// @param depth The invalid depth that was requested
     error IncrementalMerkleTree__MerkleTreeIndexOutOfBounds(uint32 depth);
+    
+    /// @dev Thrown when trying to insert into a full tree
+    /// @param currentIndex The current leaf index when tree became full
     error IncrementalMerkleTree__MerkleTreeFull(uint32 currentIndex);
+
+    /*//////////////////////////////////////////////////////////////
+                              CONSTRUCTOR
+    //////////////////////////////////////////////////////////////*/
+    
+    /**
+     * @notice Initializes the Merkle tree with specified depth and hasher
+     * @param _depth The depth of the Merkle tree (must be > 0 and < 32)
+     * @param _hasher The Poseidon2 hasher contract to use
+     * @dev Sets up the initial root as the hash of all zero leaves
+     */
     constructor(uint32 _depth, Poseidon2 _hasher) {
         if(_depth <= 0) {
             revert IncrementalMerkleTree__DepthShouldBeMoreThanZero();
@@ -30,44 +89,78 @@ contract IncrementalMerkleTree {
         i_hasher = _hasher;
     }
 
+    /*//////////////////////////////////////////////////////////////
+                            PUBLIC FUNCTIONS
+    //////////////////////////////////////////////////////////////*/
+    
+    /**
+     * @notice Inserts a new leaf into the Merkle tree
+     * @param _leaf The leaf value to insert
+     * @return The index at which the leaf was inserted
+     * @dev Updates cached subtrees and computes new root incrementally.
+     *      The function traverses up the tree, updating hashes level by level.
+     *      For even indices, the leaf becomes the left child; for odd indices, it becomes the right child.
+     */
     function _insert(bytes32 _leaf) public returns(uint32) {
         uint32 currentIndex = s_nextLeafIndex; 
         uint32 _nextLeafIndex = s_nextLeafIndex;
+        
+        // Check if tree is full
         if(currentIndex == uint32(2) ** i_depth) {
             revert IncrementalMerkleTree__MerkleTreeFull(currentIndex);
         }
+        
         bytes32 currentHash = _leaf;
         bytes32 left;
         bytes32 right;
+        
+        // Traverse up the tree, computing hashes level by level
         for(uint32 i = 0 ; i < i_depth ; i ++ ) {
             if(currentIndex % 2 == 0) {
+                // Current node is a left child
                 left = currentHash;
-                right = zeroes(i);
-                s_cachedSubTrees[i] = currentHash;
-            }   
-            else {
-                left = s_cachedSubTrees[i];
+                right = zeroes(i);  // Use zero hash for missing right sibling
+                s_cachedSubTrees[i] = currentHash;  // Cache this subtree
+            } else {
+                // Current node is a right child
+                left = s_cachedSubTrees[i];  // Get cached left sibling
                 right = currentHash;
             }
 
+            // Compute parent hash using Poseidon2
             currentHash = Field.toBytes32(i_hasher.hash_2(Field.toField(left), Field.toField(right)));
-
+            
+            // Move to parent level
             currentIndex /= 2;
         }
+        
+        // Update root history (circular buffer)
         uint32 newRootIndex = (s_currentRootIndex + 1) % ROOT_HISTORY_SIZE;
         s_currentRootIndex = newRootIndex;
         s_roots[newRootIndex] = currentHash;
+        
+        // Increment next leaf index
         s_nextLeafIndex += 1;
+        
         return _nextLeafIndex;
-       
     }
 
+    /**
+     * @notice Checks if a given root is known (exists in history)
+     * @param _root The root hash to check
+     * @return True if the root exists in the historical roots, false otherwise
+     * @dev Searches through the circular buffer of historical roots.
+     *      Returns false for zero hash to prevent attacks.
+     */
     function isKnownRoot(bytes32 _root) public view returns(bool) {
         if(_root == bytes32(0)) {
             return false;
         }
+        
         uint32 _currentRootIndex = s_currentRootIndex;
         uint32 i = _currentRootIndex;
+        
+        // Search through circular buffer
         do { 
             if(_root == s_roots[i]) {
                 return true;
@@ -76,12 +169,21 @@ contract IncrementalMerkleTree {
                 i = ROOT_HISTORY_SIZE;
             }
             i -- ;
-
         } while (i != s_currentRootIndex);
+        
         return false;
     }
+    
+    /**
+     * @notice Returns the zero hash for a given tree level
+     * @param i The tree level (0 = leaf level, increases toward root)
+     * @return The precomputed zero hash for level i
+     * @dev These are precomputed hashes of subtrees containing all zero leaves.
+     *      Used to efficiently compute hashes when parts of the tree are empty.
+     *      The values are computed as: zeroes[i] = hash(zeroes[i-1], zeroes[i-1])
+     */
     function zeroes(uint32 i) public pure returns(bytes32 ) {
-     if (i == 0) return bytes32(0x0d823319708ab99ec915efd4f7e03d11ca1790918e8f04cd14100aceca2aa9ff);
+        if (i == 0) return bytes32(0x0d823319708ab99ec915efd4f7e03d11ca1790918e8f04cd14100aceca2aa9ff);
         else if (i == 1) return bytes32(0x170a9598425eb05eb8dc06986c6afc717811e874326a79576c02d338bdf14f13);
         else if (i == 2) return bytes32(0x273b1a40397b618dac2fc66ceb71399a3e1a60341e546e053cbfa5995e824caf);
         else if (i == 3) return bytes32(0x16bf9b1fb2dfa9d88cfb1752d6937a1594d257c2053dff3cb971016bfcffe2a1);
@@ -116,5 +218,3 @@ contract IncrementalMerkleTree {
         else revert IncrementalMerkleTree__MerkleTreeIndexOutOfBounds(i);
     }
 }
-
-
